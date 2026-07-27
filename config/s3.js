@@ -74,7 +74,7 @@ export async function uploadImage(
     .toString("hex");
 
   const imageKey =
-    `webvistiq/${folder}/` +
+    `Tech Digital Designers/${folder}/` +
     `${Date.now()}-${uniqueId}-${baseName}${extension}`;
 
   const command = new PutObjectCommand({

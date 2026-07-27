@@ -1,5 +1,5 @@
 const FALLBACK_IMAGE =
-  "https://placehold.co/900x600/eaf2ff/1e3a8a?text=WebVistiq";
+  "https://placehold.co/900x600/eaf2ff/1e3a8a?text=Tech Digital Designers";
 
 export function getImageUrl(item) {
   if (!item) {

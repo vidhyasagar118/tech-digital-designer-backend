@@ -1,20 +1,107 @@
 import mongoose from "mongoose";
 
-const schema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    email: { type: String, required: true },
-    phone: { type: String, required: true },
-    service: { type: String, default: "" },
-    budget: { type: String, default: "" },
-    message: { type: String, required: true },
-    status: {
-      type: String,
-      enum: ["new", "contacted", "closed"],
-      default: "new",
-    },
-  },
-  { timestamps: true }
-);
+const contactSchema =
+  new mongoose.Schema(
+    {
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+      },
 
-export default mongoose.model("Contact", schema);
+      email: {
+        type: String,
+        required: true,
+        trim: true,
+        lowercase: true,
+      },
+
+      phone: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      serviceId: {
+        type:
+          mongoose.Schema.Types
+            .ObjectId,
+        ref: "Service",
+        default: null,
+      },
+
+      service: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      serviceImage: {
+        type: String,
+        default: "",
+      },
+
+      budget: {
+        type: String,
+        default: "",
+      },
+
+      message: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      whatsappConsent: {
+        type: Boolean,
+        default: false,
+      },
+
+      status: {
+        type: String,
+        enum: [
+          "new",
+          "contacted",
+          "approved",
+          "payment_pending",
+          "paid",
+          "rejected",
+          "closed",
+        ],
+        default: "new",
+      },
+
+      adminMessage: {
+        type: String,
+        default: "",
+      },
+
+      paymentQrUrl: {
+        type: String,
+        default: "",
+      },
+
+      paymentUpiId: {
+        type: String,
+        default: "",
+      },
+
+      paymentAccountName: {
+        type: String,
+        default: "",
+      },
+
+      approvedAt: {
+        type: Date,
+        default: null,
+      },
+    },
+    {
+      timestamps: true,
+    }
+  );
+
+export default mongoose.model(
+  "Contact",
+  contactSchema
+);
