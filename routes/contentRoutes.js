@@ -9,7 +9,9 @@ import {
   adminOnly,
   protect,
 } from "../middleware/auth.js";
+
 import { upload } from "../middleware/upload.js";
+
 import {
   deleteImage,
   uploadImage,
@@ -21,22 +23,29 @@ const resources = {
   sliders: {
     Model: Slider,
     folder: "sliders",
+    imageRequired: true,
   },
+
   projects: {
     Model: Project,
     folder: "projects",
+    imageRequired: true,
   },
+
   services: {
     Model: Service,
     folder: "services",
+    imageRequired: true,
   },
+
   pricing: {
     Model: Pricing,
     folder: "pricing",
+    imageRequired: false,
   },
 };
 
-function parseForm(type, body) {
+function parseForm(type, body = {}) {
   const parsed = { ...body };
 
   if (
@@ -49,21 +58,31 @@ function parseForm(type, body) {
       .filter(Boolean);
   }
 
-  ["active", "featured", "highlighted"].forEach(
-    (field) => {
-      if (field in parsed) {
-        parsed[field] =
-          parsed[field] === true ||
-          parsed[field] === "true";
-      }
-    }
-  );
+  const booleanFields = [
+    "active",
+    "featured",
+    "highlighted",
+  ];
 
-  if ("price" in parsed) {
+  booleanFields.forEach((field) => {
+    if (field in parsed) {
+      parsed[field] =
+        parsed[field] === true ||
+        parsed[field] === "true";
+    }
+  });
+
+  if (
+    "price" in parsed &&
+    parsed.price !== ""
+  ) {
     parsed.price = Number(parsed.price);
   }
 
-  if ("order" in parsed) {
+  if (
+    "order" in parsed &&
+    parsed.order !== ""
+  ) {
     parsed.order = Number(parsed.order);
   }
 
@@ -71,67 +90,134 @@ function parseForm(type, body) {
 }
 
 Object.entries(resources).forEach(
-  ([type, { Model, folder }]) => {
+  ([
+    type,
+    {
+      Model,
+      folder,
+      imageRequired,
+    },
+  ]) => {
+    // Public/admin content listing
     router.get(`/${type}`, async (req, res) => {
       try {
-        const filter =
-          req.query.admin === "true"
-            ? {}
-            : type === "projects"
-            ? {}
-            : { active: true };
+        const isAdminRequest =
+          req.query.admin === "true";
+
+        let filter = {};
+
+        if (!isAdminRequest) {
+          if (type !== "projects") {
+            filter = {
+              active: true,
+            };
+          }
+        }
 
         const items = await Model.find(filter).sort({
           order: 1,
           createdAt: -1,
         });
 
-        res.json(items);
+        return res.status(200).json(items);
       } catch (error) {
-        res.status(500).json({
-          message: error.message,
+        console.error(
+          `${type} fetch error:`,
+          error
+        );
+
+        return res.status(500).json({
+          message:
+            error.message ||
+            "Content could not be loaded.",
         });
       }
     });
 
+    // Create content
     router.post(
       `/${type}`,
       protect,
       adminOnly,
       upload.single("image"),
       async (req, res) => {
+        let uploadedImage = null;
+
         try {
-          if (!req.file) {
+          if (imageRequired && !req.file) {
             return res.status(400).json({
-              message: "Image is required",
+              message: "Image is required.",
             });
           }
 
-          const uploaded = await uploadImage(
-            req.file,
-            folder
+          const contentData = parseForm(
+            type,
+            req.body
           );
 
-          const item = await Model.create({
-            ...parseForm(type, req.body),
-            ...uploaded,
-          });
+          if (req.file) {
+            uploadedImage = await uploadImage(
+              req.file,
+              folder
+            );
 
-          res.status(201).json(item);
+            contentData.imageUrl =
+              uploadedImage.imageUrl;
+
+            contentData.imageKey =
+              uploadedImage.imageKey;
+          }
+
+          const item = await Model.create(
+            contentData
+          );
+
+          return res.status(201).json(item);
         } catch (error) {
-          res.status(500).json({
-            message: error.message,
+          console.error(
+            `${type} create error:`,
+            error
+          );
+
+          // Database save fail hone par uploaded
+          // image ko S3 se remove karne ki koshish.
+          if (uploadedImage?.imageKey) {
+            try {
+              await deleteImage(
+                uploadedImage.imageKey
+              );
+            } catch (deleteError) {
+              console.error(
+                "Unused image cleanup error:",
+                deleteError
+              );
+            }
+          }
+
+          if (error.name === "ValidationError") {
+            return res.status(400).json({
+              message: error.message,
+            });
+          }
+
+          return res.status(500).json({
+            message:
+              error.message ||
+              "Content could not be created.",
           });
         }
       }
     );
 
+    // Update content
     router.put(
       `/${type}/:id`,
       protect,
       adminOnly,
       upload.single("image"),
       async (req, res) => {
+        let newUploadedImage = null;
+
         try {
           const item = await Model.findById(
             req.params.id
@@ -139,37 +225,92 @@ Object.entries(resources).forEach(
 
           if (!item) {
             return res.status(404).json({
-              message: "Item not found",
+              message: "Item not found.",
             });
           }
 
-          Object.assign(
-            item,
-            parseForm(type, req.body)
+          const parsedData = parseForm(
+            type,
+            req.body
           );
 
-          if (req.file) {
-            await deleteImage(item.imageKey);
+          Object.assign(item, parsedData);
 
-            const uploaded = await uploadImage(
+          if (req.file) {
+            newUploadedImage = await uploadImage(
               req.file,
               folder
             );
 
-            item.imageUrl = uploaded.imageUrl;
-            item.imageKey = uploaded.imageKey;
+            const previousImageKey =
+              item.imageKey;
+
+            item.imageUrl =
+              newUploadedImage.imageUrl;
+
+            item.imageKey =
+              newUploadedImage.imageKey;
+
+            await item.save();
+
+            if (previousImageKey) {
+              try {
+                await deleteImage(
+                  previousImageKey
+                );
+              } catch (deleteError) {
+                console.error(
+                  "Previous image delete error:",
+                  deleteError
+                );
+              }
+            }
+          } else {
+            await item.save();
           }
 
-          await item.save();
-          res.json(item);
+          return res.status(200).json(item);
         } catch (error) {
-          res.status(500).json({
-            message: error.message,
+          console.error(
+            `${type} update error:`,
+            error
+          );
+
+          if (newUploadedImage?.imageKey) {
+            try {
+              await deleteImage(
+                newUploadedImage.imageKey
+              );
+            } catch (deleteError) {
+              console.error(
+                "New image cleanup error:",
+                deleteError
+              );
+            }
+          }
+
+          if (error.name === "CastError") {
+            return res.status(400).json({
+              message: "Invalid item ID.",
+            });
+          }
+
+          if (error.name === "ValidationError") {
+            return res.status(400).json({
+              message: error.message,
+            });
+          }
+
+          return res.status(500).json({
+            message:
+              error.message ||
+              "Content could not be updated.",
           });
         }
       }
     );
 
+    // Delete content
     router.delete(
       `/${type}/:id`,
       protect,
@@ -182,19 +323,44 @@ Object.entries(resources).forEach(
 
           if (!item) {
             return res.status(404).json({
-              message: "Item not found",
+              message: "Item not found.",
             });
           }
 
-          await deleteImage(item.imageKey);
+          const imageKey = item.imageKey;
+
           await item.deleteOne();
 
-          res.json({
-            message: "Deleted successfully",
+          if (imageKey) {
+            try {
+              await deleteImage(imageKey);
+            } catch (deleteError) {
+              console.error(
+                "Deleted item image cleanup error:",
+                deleteError
+              );
+            }
+          }
+
+          return res.status(200).json({
+            message: "Deleted successfully.",
           });
         } catch (error) {
-          res.status(500).json({
-            message: error.message,
+          console.error(
+            `${type} delete error:`,
+            error
+          );
+
+          if (error.name === "CastError") {
+            return res.status(400).json({
+              message: "Invalid item ID.",
+            });
+          }
+
+          return res.status(500).json({
+            message:
+              error.message ||
+              "Content could not be deleted.",
           });
         }
       }
