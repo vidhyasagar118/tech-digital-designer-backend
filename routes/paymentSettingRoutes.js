@@ -20,6 +20,40 @@ const router = express.Router();
 
 const SETTING_KEY =
   "main-payment";
+  router.get(
+  "/public",
+  async (req, res) => {
+    try {
+      const setting =
+        await PaymentSetting.findOne({
+          key: SETTING_KEY,
+          active: true,
+        }).select(
+          "qrImageUrl upiId accountName active"
+        );
+
+      return res.status(200).json(
+        setting || {
+          qrImageUrl: "",
+          upiId: "",
+          accountName: "",
+          active: false,
+        }
+      );
+    } catch (error) {
+      console.error(
+        "Public payment setting load error:",
+        error
+      );
+
+      return res.status(500).json({
+        message:
+          error.message ||
+          "Payment setting could not be loaded.",
+      });
+    }
+  }
+);
 
 router.get(
   "/",
