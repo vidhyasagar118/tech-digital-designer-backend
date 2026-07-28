@@ -36,9 +36,47 @@ const contactSchema =
         trim: true,
       },
 
+      serviceCategory: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      serviceCategorySlug: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
       serviceImage: {
         type: String,
         default: "",
+      },
+
+      pricingId: {
+        type:
+          mongoose.Schema.Types
+            .ObjectId,
+        ref: "Pricing",
+        default: null,
+      },
+
+      selectedPlan: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      selectedPrice: {
+        type: Number,
+        default: null,
+        min: 0,
+      },
+
+      selectedBillingText: {
+        type: String,
+        default: "",
+        trim: true,
       },
 
       budget: {
@@ -59,6 +97,7 @@ const contactSchema =
 
       status: {
         type: String,
+
         enum: [
           "new",
           "contacted",
@@ -68,6 +107,7 @@ const contactSchema =
           "rejected",
           "closed",
         ],
+
         default: "new",
       },
 

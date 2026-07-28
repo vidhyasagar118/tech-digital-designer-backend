@@ -1,7 +1,10 @@
 import express from "express";
+import mongoose from "mongoose";
 
-import PaymentSetting from "../models/PaymentSetting.js";
 import Contact from "../models/Contact.js";
+import PaymentSetting from "../models/PaymentSetting.js";
+import Pricing from "../models/Pricing.js";
+import Service from "../models/Service.js";
 
 import {
   adminOnly,
@@ -19,128 +22,265 @@ function cleanText(
     .slice(0, maximumLength);
 }
 
-/* Public: submit enquiry */
-router.post("/", async (req, res) => {
-  try {
-    const {
-      name,
-      email,
-      phone,
-      serviceId,
-      service,
-      serviceImage,
-      budget,
-      message,
-      whatsappConsent,
-    } = req.body;
+/*
+ * Public:
+ * Create a new service enquiry.
+ */
+router.post(
+  "/",
+  async (req, res) => {
+    try {
+      const {
+        name,
+        email,
+        phone,
+        serviceId,
+        service,
+        serviceImage,
+        pricingId,
+        message,
+        whatsappConsent,
+      } = req.body;
 
-    if (
-      !name ||
-      !email ||
-      !phone ||
-      !service ||
-      !message
-    ) {
+      if (
+        !name ||
+        !email ||
+        !phone ||
+        !service ||
+        !message
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Please complete all required fields.",
+          });
+      }
+
+      const normalizedPhone =
+        String(phone).replace(
+          /\D/g,
+          ""
+        );
+
+      if (
+        !/^[6-9]\d{9}$/.test(
+          normalizedPhone
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Please enter a valid 10-digit Indian mobile number.",
+          });
+      }
+
+      /*
+       * Service की जानकारी database
+       * से verify की जाएगी।
+       */
+      let selectedService = null;
+
+      if (
+        serviceId &&
+        mongoose.isValidObjectId(
+          serviceId
+        )
+      ) {
+        selectedService =
+          await Service.findById(
+            serviceId
+          );
+      }
+
+      /*
+       * Client से भेजी गई price को
+       * trust नहीं करेंगे।
+       *
+       * Real price Pricing collection
+       * से ली जाएगी।
+       */
+      let selectedPricing = null;
+
+      if (pricingId) {
+        if (
+          !mongoose.isValidObjectId(
+            pricingId
+          )
+        ) {
+          return res
+            .status(400)
+            .json({
+              message:
+                "Invalid pricing plan selected.",
+            });
+        }
+
+        selectedPricing =
+          await Pricing.findOne({
+            _id: pricingId,
+            active: true,
+          });
+
+        if (!selectedPricing) {
+          return res
+            .status(400)
+            .json({
+              message:
+                "Selected pricing plan is no longer available.",
+            });
+        }
+
+        const requestedSlug =
+          selectedService
+            ?.categorySlug || "";
+
+        /*
+         * Selected pricing plan उसी
+         * service category का होना चाहिए।
+         */
+        if (
+          selectedPricing
+            .serviceCategorySlug &&
+          requestedSlug &&
+          selectedPricing
+            .serviceCategorySlug !==
+            requestedSlug
+        ) {
+          return res
+            .status(400)
+            .json({
+              message:
+                "Selected plan does not belong to this service category.",
+            });
+        }
+      }
+
+      const enquiry =
+        await Contact.create({
+          name: cleanText(
+            name,
+            100
+          ),
+
+          email: cleanText(
+            email,
+            150
+          ).toLowerCase(),
+
+          phone:
+            normalizedPhone,
+
+          serviceId:
+            selectedService?._id ||
+            null,
+
+          service: cleanText(
+            selectedService?.title ||
+              service,
+            150
+          ),
+
+          serviceCategory:
+            cleanText(
+              selectedService
+                ?.category,
+              150
+            ),
+
+          serviceCategorySlug:
+            cleanText(
+              selectedService
+                ?.categorySlug,
+              150
+            ),
+
+          serviceImage:
+            cleanText(
+              selectedService
+                ?.imageUrl ||
+                serviceImage,
+              1000
+            ),
+
+          pricingId:
+            selectedPricing?._id ||
+            null,
+
+          selectedPlan:
+            cleanText(
+              selectedPricing
+                ?.planName ||
+                "Custom Quote",
+              150
+            ),
+
+          selectedPrice:
+            selectedPricing?.price ??
+            null,
+
+          selectedBillingText:
+            cleanText(
+              selectedPricing
+                ?.billingText,
+              200
+            ),
+
+          budget:
+            selectedPricing
+              ? `₹${Number(
+                  selectedPricing
+                    .price
+                ).toLocaleString(
+                  "en-IN"
+                )}`
+              : "Custom quotation",
+
+          message: cleanText(
+            message,
+            3000
+          ),
+
+          whatsappConsent:
+            whatsappConsent ===
+              true ||
+            whatsappConsent ===
+              "true",
+        });
+
       return res
-        .status(400)
+        .status(201)
         .json({
           message:
-            "Please complete all required fields.",
-        });
-    }
+            "Your enquiry has been submitted successfully.",
 
-    const normalizedPhone =
-      String(phone).replace(
-        /\D/g,
-        ""
+          enquiryId:
+            enquiry._id,
+
+          enquiry,
+        });
+    } catch (error) {
+      console.error(
+        "Contact submission error:",
+        error
       );
 
-    if (
-      !/^[6-9]\d{9}$/.test(
-        normalizedPhone
-      )
-    ) {
       return res
-        .status(400)
+        .status(500)
         .json({
           message:
-            "Please enter a valid 10-digit Indian mobile number.",
+            error.message ||
+            "Enquiry could not be submitted.",
         });
     }
-
-    const enquiry =
-      await Contact.create({
-        name: cleanText(
-          name,
-          100
-        ),
-
-        email: cleanText(
-          email,
-          150
-        ).toLowerCase(),
-
-        phone:
-          normalizedPhone,
-
-        serviceId:
-          serviceId || null,
-
-        service: cleanText(
-          service,
-          150
-        ),
-
-        serviceImage:
-          cleanText(
-            serviceImage,
-            1000
-          ),
-
-        budget: cleanText(
-          budget,
-          100
-        ),
-
-        message: cleanText(
-          message,
-          3000
-        ),
-
-        whatsappConsent:
-          Boolean(
-            whatsappConsent
-          ),
-      });
-
-    return res
-      .status(201)
-      .json({
-        message:
-          "Your enquiry has been submitted successfully.",
-
-        enquiryId:
-          enquiry._id,
-
-        enquiry,
-      });
-  } catch (error) {
-    console.error(
-      "Contact submission error:",
-      error
-    );
-
-    return res
-      .status(500)
-      .json({
-        message:
-          error.message ||
-          "Enquiry could not be submitted.",
-      });
   }
-});
+);
 
-/* Admin: get enquiries */
+/*
+ * Admin:
+ * Get all enquiries.
+ */
 router.get(
   "/",
   protect,
@@ -168,7 +308,11 @@ router.get(
   }
 );
 
-/* Admin: approve enquiry */
+/*
+ * Admin:
+ * Approve enquiry and attach
+ * saved Payment QR.
+ */
 router.patch(
   "/:id/approve",
   protect,
@@ -182,9 +326,8 @@ router.patch(
         });
 
       if (
-        !paymentSetting ||
         !paymentSetting
-          .qrImageUrl
+          ?.qrImageUrl
       ) {
         return res
           .status(400)
@@ -197,6 +340,7 @@ router.patch(
       const enquiry =
         await Contact.findByIdAndUpdate(
           req.params.id,
+
           {
             status:
               "approved",
@@ -207,7 +351,8 @@ router.patch(
 
             paymentUpiId:
               paymentSetting
-                .upiId || "",
+                .upiId ||
+              "",
 
             paymentAccountName:
               paymentSetting
@@ -225,6 +370,7 @@ router.patch(
             approvedAt:
               new Date(),
           },
+
           {
             new: true,
             runValidators: true,
@@ -263,7 +409,10 @@ router.patch(
   }
 );
 
-/* Admin: update status */
+/*
+ * Admin:
+ * Update enquiry status.
+ */
 router.patch(
   "/:id/status",
   protect,
@@ -296,10 +445,12 @@ router.patch(
       const enquiry =
         await Contact.findByIdAndUpdate(
           req.params.id,
+
           {
             status:
               req.body.status,
           },
+
           {
             new: true,
             runValidators: true,
