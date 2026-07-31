@@ -27,13 +27,21 @@ const configuredClientUrl =
   String(
     process.env.CLIENT_URL || ""
   ).replace(/\/+$/, "");
-
 const allowedOrigins = [
   configuredClientUrl,
 
+  // Local React/Vite frontend
   "http://localhost:5173",
 
+  // Deployed website
   "https://tech-digital-designer.vercel.app",
+  "https://techdigitaldesigner.in",
+  "https://www.techdigitaldesigner.in",
+
+  // Capacitor Android/iOS app
+  "http://localhost",
+  "https://localhost",
+  "capacitor://localhost",
 ].filter(Boolean);
 
 app.use(
